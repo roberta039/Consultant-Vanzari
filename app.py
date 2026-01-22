@@ -8,7 +8,7 @@ from datetime import datetime
 import time
 
 # --- CONFIGURARE PAGINĂ ---
-st.set_page_config(page_title="Agent Vânzări IT AI", layout="wide")
+st.set_page_config(page_title="Consultant Vânzări IT AI", layout="wide")
 
 # --- 1. GESTIONARE BAZĂ DE DATE (SQLite) ---
 DB_FILE = "chat_history.db"
