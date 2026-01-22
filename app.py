@@ -71,10 +71,10 @@ def configure_gemini():
     
     # Încercăm să luăm cheile din secrets (formatate ca listă sau string cu virgulă)
     if "api_keys" in st.secrets:
-        if isinstance(st.secrets["api_keys"], list):
-            api_keys = st.secrets["api_keys"]
+        if isinstance(st.secrets["GOOGLE_API_KEYS"], list):
+            api_keys = st.secrets["GOOGLE_API_KEYS"]
         else:
-            api_keys = st.secrets["api_keys"].split(",")
+            api_keys = st.secrets["GOOGLE_API_KEYS"].split(",")
     
     valid_model = None
     working_key = None
@@ -84,7 +84,7 @@ def configure_gemini():
         key = key.strip()
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             # Test rapid pentru a vedea dacă cheia e activă
             response = model.generate_content("test", request_options={"timeout": 5})
             working_key = key
