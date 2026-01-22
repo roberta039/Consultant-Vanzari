@@ -90,7 +90,7 @@ def configure_gemini():
         if user_key:
             try:
                 genai.configure(api_key=user_key)
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-2.5-flash')
                 valid_model = model
             except:
                 pass
