@@ -134,7 +134,7 @@ def upload_to_gemini(uploaded_file):
 
 # --- INTERFAȚA GRAFICĂ (UI) ---
 
-st.title("🤖 Asistent Vânzări IT - AI")
+st.title("🤖 Consultant Vânzări IT - AI")
 st.markdown(f"**ID Sesiune:** `{session_id}` (Poți reveni pe acest link pentru a continua discuția)")
 
 # Configurare Model
