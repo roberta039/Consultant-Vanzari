@@ -67,10 +67,10 @@ def configure_gemini():
     Dacă nu există chei valide, cere utilizatorului una.
     Returnează modelul configurat sau None.
     """
-    api_keys = []
+    GOOGLE_API_KEYS = []
     
     # Încercăm să luăm cheile din secrets (formatate ca listă sau string cu virgulă)
-    if "api_keys" in st.secrets:
+    if "GOOGLE_API_KEYS" in st.secrets:
         if isinstance(st.secrets["GOOGLE_API_KEYS"], list):
             api_keys = st.secrets["GOOGLE_API_KEYS"]
         else:
