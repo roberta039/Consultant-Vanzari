@@ -9,7 +9,7 @@ from datetime import datetime
 import time
 from io import BytesIO
 from docx import Document
-from docx.shared import Pt, Inches
+from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # --- CONFIGURARE PAGINĂ ---
@@ -72,6 +72,7 @@ def configure_gemini():
             api_keys = st.secrets["GOOGLE_API_KEYS"].split(",")
     
     valid_model = None
+	working_key = None
     
     for key in api_keys:
         key = key.strip()
@@ -113,64 +114,51 @@ def upload_to_gemini(uploaded_file):
         st.error(f"Eroare upload: {e}")
         return None
 
-# --- 5. GENERATOR DOCUMENT WORD (NOU) ---
+# --- 5. GENERATOR DOCUMENT WORD ---
 def add_markdown_paragraph(doc, text):
-    """Adaugă un paragraf, gestionând bold (text între **)"""
     p = doc.add_paragraph()
-    # Split după ** pentru a găsi părțile bold
     parts = re.split(r'(\*\*.*?\*\*)', text)
     for part in parts:
         if part.startswith('**') and part.endswith('**'):
-            run = p.add_run(part[2:-2]) # Scoatem **
+            run = p.add_run(part[2:-2])
             run.bold = True
         else:
             p.add_run(part)
 
 def create_docx(markdown_text):
-    """Convertește textul Markdown (inclusiv tabele) în fișier Word"""
     doc = Document()
     doc.add_heading('Ofertă / Raport AI', 0)
 
     lines = markdown_text.split('\n')
-    table_buffer = [] # Stocăm liniile tabelului curent
+    table_buffer = [] 
     
     for line in lines:
         line = line.strip()
         
-        # --- DETECȚIE TABEL ---
         if line.startswith('|') and line.endswith('|'):
-            # Este o linie de tabel
             if '---' in line: 
-                continue # Ignorăm linia de separare Markdown
-            
-            # Curățăm celulele
+                continue 
             cells = [c.strip() for c in line.split('|')[1:-1]]
             table_buffer.append(cells)
         else:
-            # Dacă am avut un tabel în buffer, îl scriem acum în Word
             if table_buffer:
-                # Creăm tabelul în Word
                 if len(table_buffer) > 0:
                     rows = len(table_buffer)
                     cols = len(table_buffer[0])
                     table = doc.add_table(rows=rows, cols=cols)
                     table.style = 'Table Grid'
-                    
                     for i, row_data in enumerate(table_buffer):
                         row_cells = table.rows[i].cells
                         for j, cell_text in enumerate(row_data):
                             if j < len(row_cells):
                                 row_cells[j].text = cell_text
-                                # Bold pentru header (prima linie)
                                 if i == 0:
                                     for paragraph in row_cells[j].paragraphs:
                                         for run in paragraph.runs:
                                             run.bold = True
-                
-                table_buffer = [] # Resetăm bufferul
-                doc.add_paragraph() # Spațiu după tabel
+                table_buffer = [] 
+                doc.add_paragraph() 
 
-            # --- PROCESARE TEXT NORMAL ---
             if line:
                 if line.startswith('###'):
                     doc.add_heading(line.replace('###', '').strip(), level=3)
@@ -184,7 +172,6 @@ def create_docx(markdown_text):
                 else:
                     add_markdown_paragraph(doc, line)
 
-    # Verificăm dacă a rămas un tabel nescris la final
     if table_buffer:
         rows = len(table_buffer)
         cols = len(table_buffer[0])
@@ -200,7 +187,6 @@ def create_docx(markdown_text):
                             for run in paragraph.runs:
                                 run.bold = True
 
-    # Salvare în buffer
     bio = BytesIO()
     doc.save(bio)
     bio.seek(0)
@@ -214,27 +200,49 @@ st.markdown(f"**ID Sesiune:** `{session_id}`")
 model = configure_gemini()
 
 with st.sidebar:
-    st.header("📂 Documente")
-    portfolio_file = st.file_uploader("Portofoliu (PDF)", type=['pdf'])
-    catalog_file = st.file_uploader("Catalog (PDF/TXT/CSV)", type=['pdf', 'txt', 'csv'])
+    st.header("📂 Documente Companie")
+    portfolio_file = st.file_uploader("Portofoliu Companie (PDF)", type=['pdf'], key="port")
+    catalog_file = st.file_uploader("Catalog Produse & Prețuri (PDF/CSV)", type=['pdf', 'txt', 'csv'], key="cat")
     
-    if st.button("Procesează Documentele"):
+    st.divider()
+    st.header("📋 Documente Client")
+    st.info("Încarcă cerințele brute primite de la client (liste, specificații).")
+    client_req_file = st.file_uploader("Cerințe Client (PDF/CSV/TXT)", type=['pdf', 'txt', 'csv'], key="req")
+    
+    if st.button("Procesează Toate Documentele"):
         if model:
-            with st.spinner("Se încarcă..."):
+            with st.spinner("Se analizează fișierele..."):
+                # 1. Portofoliu
                 if portfolio_file:
                     f1 = upload_to_gemini(portfolio_file)
                     if f1: 
                         st.session_state['portfolio_ref'] = f1
-                        st.success("Portofoliu OK")
+                        st.success("✅ Portofoliu încărcat")
+                
+                # 2. Catalog
                 if catalog_file:
                     f2 = upload_to_gemini(catalog_file)
                     if f2: 
                         st.session_state['catalog_ref'] = f2
-                        st.success("Catalog OK")
+                        st.success("✅ Catalog încărcat")
+
+                # 3. Cerințe Client (NOU)
+                if client_req_file:
+                    f3 = upload_to_gemini(client_req_file)
+                    if f3:
+                        st.session_state['client_req_ref'] = f3
+                        st.success("✅ Cerințe Client încărcate")
+        else:
+            st.error("Configurează cheia API!")
 
     st.divider()
     if st.button("RESET CONVERSAȚIE", type="primary"):
         clear_session_history(session_id)
+        # Resetăm și fișierele din sesiune
+        keys_to_remove = ['portfolio_ref', 'catalog_ref', 'client_req_ref']
+        for key in keys_to_remove:
+            if key in st.session_state:
+                del st.session_state[key]
         st.rerun()
 
 if "messages" not in st.session_state:
@@ -244,7 +252,7 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if prompt := st.chat_input("Scrie cererea clientului aici..."):
+if prompt := st.chat_input("Ex: Generează oferta pe baza fișierului clientului..."):
     if not model:
         st.error("Configurează cheia API.")
     else:
@@ -253,28 +261,40 @@ if prompt := st.chat_input("Scrie cererea clientului aici..."):
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        conversation_context = []
+        # Construire Context pentru AI
         system_instruction = """
         Ești un agent expert în vânzări IT. 
-        Analizează cerințele clientului și propune soluții folosind DOAR echipamentele/serviciile din fișierele încărcate.
-        Dacă este o ofertă, genereaz-o sub formă de tabel Markdown (cu coloane: Produs, Specificații, Preț, Total).
-        Nu inventa produse care nu sunt în catalog.
+        Scopul tău este să generezi oferte comerciale.
+        
+        REGULI IMPORTANTE:
+        1. Analizează documentele încărcate.
+        2. Dacă există un fișier de 'Cerințe Client', extrage produsele din el și caută echivalente în 'Catalog'.
+        3. Dacă produsul exact nu există, propune cel mai apropiat produs din 'Catalog' și specifică acest lucru.
+        4. Nu inventa prețuri. Folosește doar ce e în 'Catalog'.
+        5. Generează rezultatul final sub formă de tabel Markdown (Produs Solicitat | Soluție Propusă | Preț Unitar | Cantitate | Total).
         """
         
         current_request = [system_instruction]
+        
         if 'portfolio_ref' in st.session_state:
-            current_request.append("Portofoliu:")
+            current_request.append("DOCUMENT: Portofoliu Companie")
             current_request.append(st.session_state['portfolio_ref'])
+            
         if 'catalog_ref' in st.session_state:
-            current_request.append("Catalog:")
+            current_request.append("DOCUMENT: Catalog Produse și Prețuri")
             current_request.append(st.session_state['catalog_ref'])
+
+        # Adăugăm fișierul clientului în prompt
+        if 'client_req_ref' in st.session_state:
+            current_request.append("DOCUMENT CRITIC: Cerințe primite de la client (Lista de necesar)")
+            current_request.append(st.session_state['client_req_ref'])
             
         history_text = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[-5:]])
-        current_request.append(f"Istoric:\n{history_text}")
-        current_request.append(f"SOLICITARE: {prompt}")
+        current_request.append(f"Istoric Discuție:\n{history_text}")
+        current_request.append(f"SOLICITARE CURENTĂ: {prompt}")
 
         with st.chat_message("assistant"):
-            with st.spinner("Gândesc..."):
+            with st.spinner("AI-ul compară cerințele clientului cu catalogul..."):
                 try:
                     response = model.generate_content(current_request)
                     response_text = response.text
@@ -283,13 +303,12 @@ if prompt := st.chat_input("Scrie cererea clientului aici..."):
                     st.session_state.messages.append({"role": "assistant", "content": response_text})
                     save_message(session_id, "assistant", response_text)
 
-                    # --- GENERARE DOCX PENTRU DOWNLOAD ---
                     docx_file = create_docx(response_text)
                     
                     st.download_button(
                         label="📄 Descarcă Oferta (Format Word .docx)",
                         data=docx_file,
-                        file_name=f"oferta_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
+                        file_name=f"oferta_client_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
 
