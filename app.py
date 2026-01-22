@@ -64,29 +64,40 @@ else:
 
 # --- 3. GESTIONARE CHEI API ---
 def configure_gemini():
-    GOOGLE_API_KEYS = []
+    # Căutăm cheile în secrets sub numele 'GOOGLE_API_KEYS' sau 'api_keys'
+    api_keys = []
+    
+    # Verificăm ambele denumiri posibile în secrets
     if "GOOGLE_API_KEYS" in st.secrets:
         if isinstance(st.secrets["GOOGLE_API_KEYS"], list):
             api_keys = st.secrets["GOOGLE_API_KEYS"]
         else:
             api_keys = st.secrets["GOOGLE_API_KEYS"].split(",")
+    elif "api_keys" in st.secrets:
+        if isinstance(st.secrets["api_keys"], list):
+            api_keys = st.secrets["api_keys"]
+        else:
+            api_keys = st.secrets["api_keys"].split(",")
     
     valid_model = None
-	working_key = None
     
+    # Rotație chei
     for key in api_keys:
         key = key.strip()
         try:
             genai.configure(api_key=key)
+            # CORECTAT: Folosim gemini-2.5-flash
             model = genai.GenerativeModel('gemini-2.5-flash')
+            # Testăm conexiunea
             model.generate_content("test", request_options={"timeout": 5})
             valid_model = model
             break 
         except Exception:
             continue
 
+    # Fallback: Cheie manuală în browser
     if not valid_model:
-        st.sidebar.warning("Folosim cheie manuală.")
+        st.sidebar.warning("Nicio cheie din sistem nu merge. Introdu una manual.")
         user_key = st.sidebar.text_input("Cheie API Gemini:", type="password")
         if user_key:
             try:
@@ -104,10 +115,15 @@ def upload_to_gemini(uploaded_file):
         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
             tmp_file.write(uploaded_file.getvalue())
             tmp_path = tmp_file.name
+        
+        # Upload
         gemini_file = genai.upload_file(path=tmp_path, display_name=uploaded_file.name)
+        
+        # Așteptare procesare
         while gemini_file.state.name == "PROCESSING":
             time.sleep(1)
             gemini_file = genai.get_file(gemini_file.name)
+            
         os.remove(tmp_path)
         return gemini_file
     except Exception as e:
@@ -117,6 +133,7 @@ def upload_to_gemini(uploaded_file):
 # --- 5. GENERATOR DOCUMENT WORD ---
 def add_markdown_paragraph(doc, text):
     p = doc.add_paragraph()
+    # Gestionare Bold (**text**)
     parts = re.split(r'(\*\*.*?\*\*)', text)
     for part in parts:
         if part.startswith('**') and part.endswith('**'):
@@ -135,12 +152,14 @@ def create_docx(markdown_text):
     for line in lines:
         line = line.strip()
         
+        # Detectare tabel Markdown
         if line.startswith('|') and line.endswith('|'):
             if '---' in line: 
                 continue 
             cells = [c.strip() for c in line.split('|')[1:-1]]
             table_buffer.append(cells)
         else:
+            # Scriem tabelul acumulat anterior
             if table_buffer:
                 if len(table_buffer) > 0:
                     rows = len(table_buffer)
@@ -152,6 +171,7 @@ def create_docx(markdown_text):
                         for j, cell_text in enumerate(row_data):
                             if j < len(row_cells):
                                 row_cells[j].text = cell_text
+                                # Bold pe header
                                 if i == 0:
                                     for paragraph in row_cells[j].paragraphs:
                                         for run in paragraph.runs:
@@ -159,6 +179,7 @@ def create_docx(markdown_text):
                 table_buffer = [] 
                 doc.add_paragraph() 
 
+            # Procesare text normal
             if line:
                 if line.startswith('###'):
                     doc.add_heading(line.replace('###', '').strip(), level=3)
@@ -172,6 +193,7 @@ def create_docx(markdown_text):
                 else:
                     add_markdown_paragraph(doc, line)
 
+    # Dacă a rămas un tabel la final
     if table_buffer:
         rows = len(table_buffer)
         cols = len(table_buffer[0])
@@ -192,10 +214,10 @@ def create_docx(markdown_text):
     bio.seek(0)
     return bio
 
-# --- UI ---
+# --- INTERFAȚA GRAFICĂ (UI) ---
 
 st.title("🤖 Consultant Vânzări IT - AI")
-st.markdown(f"**ID Sesiune:** `{session_id}`")
+st.markdown(f"**ID Sesiune:** `{session_id}` (Salvează acest link pentru a reveni)")
 
 model = configure_gemini()
 
@@ -206,37 +228,37 @@ with st.sidebar:
     
     st.divider()
     st.header("📋 Documente Client")
-    st.info("Încarcă cerințele brute primite de la client (liste, specificații).")
+    st.info("Încarcă lista de necesar primită de la client.")
     client_req_file = st.file_uploader("Cerințe Client (PDF/CSV/TXT)", type=['pdf', 'txt', 'csv'], key="req")
     
     if st.button("Procesează Toate Documentele"):
         if model:
-            with st.spinner("Se analizează fișierele..."):
+            with st.spinner("Se analizează fișierele pe serverele Google..."):
                 # 1. Portofoliu
                 if portfolio_file:
                     f1 = upload_to_gemini(portfolio_file)
                     if f1: 
                         st.session_state['portfolio_ref'] = f1
-                        st.success("✅ Portofoliu încărcat")
+                        st.success("✅ Portofoliu Procesat")
                 
                 # 2. Catalog
                 if catalog_file:
                     f2 = upload_to_gemini(catalog_file)
                     if f2: 
                         st.session_state['catalog_ref'] = f2
-                        st.success("✅ Catalog încărcat")
+                        st.success("✅ Catalog Procesat")
 
-                # 3. Cerințe Client (NOU)
+                # 3. Cerințe Client
                 if client_req_file:
                     f3 = upload_to_gemini(client_req_file)
                     if f3:
                         st.session_state['client_req_ref'] = f3
-                        st.success("✅ Cerințe Client încărcate")
+                        st.success("✅ Cerințe Client Procesate")
         else:
-            st.error("Configurează cheia API!")
+            st.error("Modelul AI nu este configurat. Verifică cheile API.")
 
     st.divider()
-    if st.button("RESET CONVERSAȚIE", type="primary"):
+    if st.button("RESET CONVERSAȚIE & FIȘIERE", type="primary"):
         clear_session_history(session_id)
         # Resetăm și fișierele din sesiune
         keys_to_remove = ['portfolio_ref', 'catalog_ref', 'client_req_ref']
@@ -245,6 +267,7 @@ with st.sidebar:
                 del st.session_state[key]
         st.rerun()
 
+# Recuperare istoric din SQLite
 if "messages" not in st.session_state:
     st.session_state.messages = load_history(session_id)
 
@@ -252,65 +275,71 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if prompt := st.chat_input("Ex: Generează oferta pe baza fișierului clientului..."):
+# Input utilizator
+if prompt := st.chat_input("Ex: Analizează fișierul clientului și fă o ofertă din catalog..."):
     if not model:
-        st.error("Configurează cheia API.")
+        st.error("Te rog configurează o cheie API validă.")
     else:
+        # 1. Salvare user input
         st.session_state.messages.append({"role": "user", "content": prompt})
         save_message(session_id, "user", prompt)
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Construire Context pentru AI
+        # 2. Construire Context
         system_instruction = """
-        Ești un agent expert în vânzări IT. 
-        Scopul tău este să generezi oferte comerciale.
-        
-        REGULI IMPORTANTE:
+        Ești un consultant expert în vânzări de echipamente IT.
+        Sarcina ta:
         1. Analizează documentele încărcate.
-        2. Dacă există un fișier de 'Cerințe Client', extrage produsele din el și caută echivalente în 'Catalog'.
-        3. Dacă produsul exact nu există, propune cel mai apropiat produs din 'Catalog' și specifică acest lucru.
-        4. Nu inventa prețuri. Folosește doar ce e în 'Catalog'.
-        5. Generează rezultatul final sub formă de tabel Markdown (Produs Solicitat | Soluție Propusă | Preț Unitar | Cantitate | Total).
+        2. Prioritate MAXIMĂ: Dacă există 'Cerințe Client', identifică produsele cerute.
+        3. Caută produsele identificate în 'Catalog'. 
+           - Dacă există exact: folosește prețul din catalog.
+           - Dacă nu există exact: propune cea mai bună alternativă din catalog și explică de ce.
+        4. Generează oferta finală sub formă de tabel Markdown detaliat.
+        5. Fii politicos și profesionist.
         """
         
         current_request = [system_instruction]
         
         if 'portfolio_ref' in st.session_state:
-            current_request.append("DOCUMENT: Portofoliu Companie")
+            current_request.append("DOCUMENT CONTEXT: Portofoliu Companie")
             current_request.append(st.session_state['portfolio_ref'])
             
         if 'catalog_ref' in st.session_state:
-            current_request.append("DOCUMENT: Catalog Produse și Prețuri")
+            current_request.append("DOCUMENT CONTEXT: Catalog Produse și Prețuri")
             current_request.append(st.session_state['catalog_ref'])
 
-        # Adăugăm fișierul clientului în prompt
         if 'client_req_ref' in st.session_state:
-            current_request.append("DOCUMENT CRITIC: Cerințe primite de la client (Lista de necesar)")
+            current_request.append("DOCUMENT CRITIC: Lista de Cerințe a Clientului")
             current_request.append(st.session_state['client_req_ref'])
             
+        # Adăugăm ultimele 5 mesaje pentru context
         history_text = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages[-5:]])
         current_request.append(f"Istoric Discuție:\n{history_text}")
         current_request.append(f"SOLICITARE CURENTĂ: {prompt}")
 
+        # 3. Generare Răspuns
         with st.chat_message("assistant"):
-            with st.spinner("AI-ul compară cerințele clientului cu catalogul..."):
+            with st.spinner("Generez oferta comparativă..."):
                 try:
                     response = model.generate_content(current_request)
                     response_text = response.text
                     
                     st.markdown(response_text)
+                    
+                    # Salvare
                     st.session_state.messages.append({"role": "assistant", "content": response_text})
                     save_message(session_id, "assistant", response_text)
 
+                    # Generare Word
                     docx_file = create_docx(response_text)
                     
                     st.download_button(
-                        label="📄 Descarcă Oferta (Format Word .docx)",
+                        label="📄 Descarcă Oferta (Word .docx)",
                         data=docx_file,
-                        file_name=f"oferta_client_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
+                        file_name=f"Oferta_Generata_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
 
                 except Exception as e:
-                    st.error(f"Eroare: {e}")
+                    st.error(f"Eroare la generare: {e}")
